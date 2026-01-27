@@ -5,9 +5,8 @@ joblib
 python-dotenv
 requests
 
-# Hopsworks pinned to backend version
-hopsworks==4.2.*
-hsfs==4.2.*
+# Use the Hopsworks client matching your backend minor version
+hopsworks[python]==4.2.*
 
-# Required by HSFS engine
+# ensures Arrow Flight works
 pyarrow
