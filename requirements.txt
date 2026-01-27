@@ -1,0 +1,8 @@
+pandas
+numpy
+scikit-learn
+joblib
+python-dotenv
+requests
+hopsworks
+hsfs
