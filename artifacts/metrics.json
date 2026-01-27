@@ -1,0 +1,9 @@
+{
+  "best_model_key": "gbr",
+  "best_model_name": "Gradient Boosting",
+  "rmse": 1.5355443489247398,
+  "mae": 1.3161739310312504,
+  "r2": -2.7228125351655517,
+  "horizon_hours": 72,
+  "n_rows_train": 2760
+}
