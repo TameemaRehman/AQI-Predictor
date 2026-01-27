@@ -34,9 +34,9 @@ def get_feature_group(project):
 def get_last_timestamp(fg) -> datetime:
     """
     Read the latest timestamp from the feature group.
-    If none exists, fallback to last 7 days (or 120 days for initial backfill).
+    If none exists, fallback to last 7 days.
     """
-    df = fg.read()  # for 3k rows this is fine; later you can optimize via SQL query
+    df = fg.read()
     if df.empty:
         return datetime.now(timezone.utc) - timedelta(days=7)
 
@@ -78,6 +78,8 @@ def json_to_features(data: dict, location_id: str) -> pd.DataFrame:
         return df
 
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    df["location_id"] = df["location_id"].astype(str)
+
     df = df.sort_values(["location_id", "timestamp"]).reset_index(drop=True)
 
     # Time features
@@ -85,9 +87,9 @@ def json_to_features(data: dict, location_id: str) -> pd.DataFrame:
     df["day"] = df["timestamp"].dt.day
     df["month"] = df["timestamp"].dt.month
     df["day_of_week"] = df["timestamp"].dt.dayofweek
-    df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
+    df["is_weekend"] = (df["day_of_week"] >= 5)
 
-    # Engineered features (needs history; for small increments, lags may be NaN unless you include overlap)
+    # Engineered features
     df["aqi_change"] = df.groupby("location_id")["aqi"].diff()
     df["aqi_lag_1h"] = df.groupby("location_id")["aqi"].shift(1)
     df["aqi_lag_24h"] = df.groupby("location_id")["aqi"].shift(24)
@@ -104,16 +106,27 @@ def json_to_features(data: dict, location_id: str) -> pd.DataFrame:
         .reset_index(level=0, drop=True)
     )
 
-    # Ensure numeric
-    numeric_cols = [
+    # Ensure numeric for float-like columns
+    float_cols = [
         "co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3",
-        "aqi", "hour", "day", "month", "day_of_week", "is_weekend",
         "aqi_change", "aqi_lag_1h", "aqi_lag_24h", "pm2_5_lag_24h",
         "aqi_roll_24h", "pm2_5_roll_24h",
     ]
-    for c in numeric_cols:
+    for c in float_cols:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # ✅ Force schema-stable INT columns (fixes bigint vs int mismatch)
+    int_cols = ["aqi", "hour", "day", "month", "day_of_week", "is_weekend"]
+    for c in int_cols:
+        if c in df.columns:
+            if c == "is_weekend":
+                df[c] = df[c].astype("int32")  # True/False -> 0/1 int32
+            else:
+                df[c] = pd.to_numeric(df[c], errors="coerce").astype("int32")
+
+    # Safety: remove duplicates on primary key
+    df = df.drop_duplicates(subset=["location_id", "timestamp"], keep="last")
 
     return df
 
@@ -123,7 +136,8 @@ def main():
     fg = get_feature_group(project)
 
     last_ts = get_last_timestamp(fg)
-    # Include overlap of 24h so lags/rolling compute correctly for new rows
+
+    # Overlap 24h so lag/rolling features compute, but we only insert new rows
     start_dt = last_ts - timedelta(hours=24)
     end_dt = datetime.now(timezone.utc)
 
@@ -140,11 +154,17 @@ def main():
         print("No new data returned from API.")
         return
 
-    # Keep only truly new rows for insertion (avoid unnecessary upserts)
+    # Insert only truly new rows (avoid repeated upserts)
     df = df[df["timestamp"] > last_ts].copy()
     if df.empty:
         print("No rows newer than last timestamp. Nothing to insert.")
         return
+
+    # Final dtype safety (extra guard)
+    df["location_id"] = df["location_id"].astype(str)
+    for c in ["aqi", "hour", "day", "month", "day_of_week", "is_weekend"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").astype("int32")
 
     fg.insert(df, write_options={"upsert": True})
     print(f"✅ Inserted/Upserted {len(df)} new rows.")
