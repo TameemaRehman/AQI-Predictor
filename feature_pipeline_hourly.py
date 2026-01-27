@@ -32,10 +32,6 @@ def get_feature_group(project):
 
 
 def get_last_timestamp(fg) -> datetime:
-    """
-    Read the latest timestamp from the feature group.
-    If none exists, fallback to last 7 days.
-    """
     df = fg.read()
     if df.empty:
         return datetime.now(timezone.utc) - timedelta(days=7)
@@ -87,7 +83,7 @@ def json_to_features(data: dict, location_id: str) -> pd.DataFrame:
     df["day"] = df["timestamp"].dt.day
     df["month"] = df["timestamp"].dt.month
     df["day_of_week"] = df["timestamp"].dt.dayofweek
-    df["is_weekend"] = (df["day_of_week"] >= 5)
+    df["is_weekend"] = (df["day_of_week"] >= 5)  # bool for now
 
     # Engineered features
     df["aqi_change"] = df.groupby("location_id")["aqi"].diff()
@@ -106,7 +102,7 @@ def json_to_features(data: dict, location_id: str) -> pd.DataFrame:
         .reset_index(level=0, drop=True)
     )
 
-    # Ensure numeric for float-like columns
+    # Float-like columns
     float_cols = [
         "co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3",
         "aqi_change", "aqi_lag_1h", "aqi_lag_24h", "pm2_5_lag_24h",
@@ -116,16 +112,18 @@ def json_to_features(data: dict, location_id: str) -> pd.DataFrame:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # ✅ Force schema-stable INT columns (fixes bigint vs int mismatch)
-    int_cols = ["aqi", "hour", "day", "month", "day_of_week", "is_weekend"]
-    for c in int_cols:
-        if c in df.columns:
-            if c == "is_weekend":
-                df[c] = df[c].astype("int32")  # True/False -> 0/1 int32
-            else:
-                df[c] = pd.to_numeric(df[c], errors="coerce").astype("int32")
+    # ✅ IMPORTANT: match Feature Group schema types
+    # FG expects aqi as BIGINT -> int64
+    df["aqi"] = pd.to_numeric(df["aqi"], errors="coerce").astype("int64")
 
-    # Safety: remove duplicates on primary key
+    # Time columns as INT -> int32
+    for c in ["hour", "day", "month", "day_of_week"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype("int32")
+
+    # Weekend flag as INT -> int32
+    df["is_weekend"] = df["is_weekend"].astype("int32")
+
+    # Remove duplicates on primary key
     df = df.drop_duplicates(subset=["location_id", "timestamp"], keep="last")
 
     return df
@@ -137,7 +135,7 @@ def main():
 
     last_ts = get_last_timestamp(fg)
 
-    # Overlap 24h so lag/rolling features compute, but we only insert new rows
+    # overlap for lag/rolling
     start_dt = last_ts - timedelta(hours=24)
     end_dt = datetime.now(timezone.utc)
 
@@ -154,17 +152,17 @@ def main():
         print("No new data returned from API.")
         return
 
-    # Insert only truly new rows (avoid repeated upserts)
+    # insert only new rows
     df = df[df["timestamp"] > last_ts].copy()
     if df.empty:
         print("No rows newer than last timestamp. Nothing to insert.")
         return
 
-    # Final dtype safety (extra guard)
+    # Final safety casting (same as schema expectations)
     df["location_id"] = df["location_id"].astype(str)
-    for c in ["aqi", "hour", "day", "month", "day_of_week", "is_weekend"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").astype("int32")
+    df["aqi"] = pd.to_numeric(df["aqi"], errors="coerce").astype("int64")
+    for c in ["hour", "day", "month", "day_of_week", "is_weekend"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype("int32")
 
     fg.insert(df, write_options={"upsert": True})
     print(f"✅ Inserted/Upserted {len(df)} new rows.")
