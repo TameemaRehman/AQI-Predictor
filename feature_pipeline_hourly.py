@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import pandas as pd
 from datetime import datetime, timedelta, timezone
@@ -112,21 +113,54 @@ def json_to_features(data: dict, location_id: str) -> pd.DataFrame:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # ✅ IMPORTANT: match Feature Group schema types
-    # FG expects aqi as BIGINT -> int64
+    # Match Feature Group schema types
     df["aqi"] = pd.to_numeric(df["aqi"], errors="coerce").astype("int64")
-
-    # Time columns as INT -> int32
     for c in ["hour", "day", "month", "day_of_week"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").astype("int32")
-
-    # Weekend flag as INT -> int32
     df["is_weekend"] = df["is_weekend"].astype("int32")
 
     # Remove duplicates on primary key
     df = df.drop_duplicates(subset=["location_id", "timestamp"], keep="last")
-
     return df
+
+
+def insert_with_retries(fg, df: pd.DataFrame, max_retries: int = 5, base_sleep: int = 10):
+    """
+    Hopsworks/GitHub runners sometimes drop the connection when the materialization job starts.
+    This retries transient network errors with exponential-ish backoff.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            fg.insert(df, write_options={"upsert": True})
+            return
+        except Exception as e:
+            msg = str(e).lower()
+            retryable = (
+                "remote end closed connection" in msg
+                or "connection aborted" in msg
+                or "connectionerror" in msg
+                or "timed out" in msg
+                or "temporarily unavailable" in msg
+                or "protocolerror" in msg
+            )
+            if (not retryable) or (attempt == max_retries):
+                raise
+
+            sleep_s = base_sleep * attempt
+            print(f"⚠️ Insert failed (attempt {attempt}/{max_retries}). Retrying in {sleep_s}s...")
+            time.sleep(sleep_s)
+
+
+def chunked_insert(fg, df: pd.DataFrame, chunk_size: int = 200):
+    """
+    More robust than a single insert if Hopsworks connection is flaky.
+    Uses upsert so reruns won't duplicate.
+    """
+    n = len(df)
+    for i in range(0, n, chunk_size):
+        chunk = df.iloc[i:i + chunk_size].copy()
+        print(f"Inserting chunk {i+1}-{i+len(chunk)} of {n}...")
+        insert_with_retries(fg, chunk)
 
 
 def main():
@@ -158,13 +192,15 @@ def main():
         print("No rows newer than last timestamp. Nothing to insert.")
         return
 
-    # Final safety casting (same as schema expectations)
+    # Final safety casting (schema expectations)
     df["location_id"] = df["location_id"].astype(str)
     df["aqi"] = pd.to_numeric(df["aqi"], errors="coerce").astype("int64")
     for c in ["hour", "day", "month", "day_of_week", "is_weekend"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").astype("int32")
 
-    fg.insert(df, write_options={"upsert": True})
+    # ✅ Use chunked + retry insert to prevent transient connection failures
+    chunked_insert(fg, df, chunk_size=200)
+
     print(f"✅ Inserted/Upserted {len(df)} new rows.")
 
 
