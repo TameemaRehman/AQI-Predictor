@@ -4,5 +4,10 @@ scikit-learn
 joblib
 python-dotenv
 requests
-hopsworks
-hsfs
+
+# Hopsworks pinned to backend version
+hopsworks==4.2.*
+hsfs==4.2.*
+
+# Required by HSFS engine
+pyarrow
