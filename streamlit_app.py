@@ -15,7 +15,7 @@ FG_NAME = "aqi_features_karachi"
 FG_VERSION = 1
 
 ARTIFACT_DIR = "artifacts"
-CHAMPION_MODEL_NAME = "aqi_champion_72h"
+CHAMPION_MODEL_NAME = "aqi_champion_24h"
 
 st.set_page_config(page_title="Karachi AQI Forecast (3 Days)", layout="wide")
 
@@ -100,7 +100,7 @@ model = load_champion_model_from_registry()
 
 if metrics:
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Champion Model", metrics.get("best_model_name", "aqi_champion_72h"))
+    c1.metric("Champion Model", metrics.get("best_model_name", "aqi_champion_24h"))
     c2.metric("RMSE", f"{metrics.get('rmse', 0):.3f}")
     c3.metric("MAE", f"{metrics.get('mae', 0):.3f}")
     c4.metric("R²", f"{metrics.get('r2', 0):.3f}")
