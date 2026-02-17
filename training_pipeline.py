@@ -138,7 +138,7 @@ def main():
             model_name=f"aqi_{key}_24h",
             model_path=model_path,
             metrics={"rmse": row["rmse"], "mae": row["mae"], "r2": row["r2"]},
-            description=f"{pretty_name} model for Karachi AQI prediction 72h ahead.",
+            description=f"{pretty_name} model for Karachi AQI prediction 24h ahead.",
         )
 
         # Track best model (by RMSE)
