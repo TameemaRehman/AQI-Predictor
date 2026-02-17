@@ -22,7 +22,7 @@ HOPSWORKS_API_KEY = os.getenv("HOPSWORKS_API_KEY")
 
 FG_NAME = "aqi_features_karachi"
 FG_VERSION = 1
-HORIZON_HOURS = 72
+HORIZON_HOURS = 24
 
 ARTIFACT_DIR = "artifacts"
 os.makedirs(ARTIFACT_DIR, exist_ok=True)
