@@ -135,7 +135,7 @@ def main():
         # Register in Hopsworks Model Registry
         register_model(
             project=project,
-            model_name=f"aqi_{key}_72h",
+            model_name=f"aqi_{key}_24h",
             model_path=model_path,
             metrics={"rmse": row["rmse"], "mae": row["mae"], "r2": row["r2"]},
             description=f"{pretty_name} model for Karachi AQI prediction 72h ahead.",
@@ -192,7 +192,7 @@ def main():
     print("\nRegistering CHAMPION model...")
     register_model(
         project=project,
-        model_name="aqi_champion_72h",
+        model_name="aqi_champion_24h",
         model_path=best["model_path"],
         metrics={"rmse": float(best["rmse"]), "mae": float(best["mae"]), "r2": float(best["r2"])},
         description=f"Champion model selected among Ridge/RF/GBR. Winner: {best['model_name']}.",
